@@ -1,0 +1,224 @@
+<div class="apidocDiv">
+<style>
+/*csslint
+*/
+.apidocDiv {
+    background: #fff;
+    font-family: Arial, Helvetica, sans-serif;
+}
+.apidocDiv a[href] {
+    color: #33f;
+    font-weight: bold;
+    text-decoration: none;
+}
+.apidocDiv a[href]:hover {
+    text-decoration: underline;
+}
+.apidocCodeCommentSpan {
+    background: #bbf;
+    color: #000;
+    display: block;
+}
+.apidocCodeKeywordSpan {
+    color: #d00;
+    font-weight: bold;
+}
+.apidocCodePre {
+    background: #eef;
+    border: 1px solid;
+    color: #777;
+    padding: 5px;
+    white-space: pre-wrap;
+}
+.apidocFooterDiv {
+    margin-top: 20px;
+    text-align: center;
+}
+.apidocModuleLi {
+    margin-top: 10px;
+}
+.apidocSectionDiv {
+    border-top: 1px solid;
+    margin-top: 20px;
+}
+.apidocSignatureSpan {
+    color: #777;
+    font-weight: bold;
+}
+</style>
+<h1>api documentation for
+    <a
+
+        href="https://github.com/substack/browser-pack"
+
+    >browser-pack (v6.0.2)</a>
+</h1>
+<h4>pack node-style source files from a json stream into a browser bundle</h4>
+<div class="apidocSectionDiv"><a
+    href="#apidoc.tableOfContents"
+    id="apidoc.tableOfContents"
+><h1>table of contents</h1></a><ol>
+
+    <li class="apidocModuleLi"><a href="#apidoc.module.browser-pack">module browser-pack</a><ol>
+
+        <li>
+
+            <a class="apidocElementLiA" href="#apidoc.element.browser-pack.browser-pack">
+            function <span class="apidocSignatureSpan"></span>browser-pack
+            <span class="apidocSignatureSpan">(opts)</span>
+            </a>
+
+        </li>
+
+        <li>
+
+            <a class="apidocElementLiA" href="#apidoc.element.browser-pack.toString">
+            function <span class="apidocSignatureSpan">browser-pack.</span>toString
+            <span class="apidocSignatureSpan">()</span>
+            </a>
+
+        </li>
+
+    </ol></li>
+
+</ol></div>
+
+<div class="apidocSectionDiv">
+<h1><a href="#apidoc.module.browser-pack" id="apidoc.module.browser-pack">module browser-pack</a></h1>
+
+
+    <h2>
+        <a href="#apidoc.element.browser-pack.browser-pack" id="apidoc.element.browser-pack.browser-pack">
+        function <span class="apidocSignatureSpan"></span>browser-pack
+        <span class="apidocSignatureSpan">(opts)</span>
+        </a>
+    </h2>
+    <ul>
+    <li>description and source-code<pre class="apidocCodePre">browser-pack = function (opts) {
+    if (!opts) opts = {};
+    var parser = opts.raw ? through.obj() : JSONStream.parse([ true ]);
+    var stream = through.obj(
+        function (buf, enc, next) { parser.write(buf); next() },
+        function () { parser.end() }
+    );
+    parser.pipe(through.obj(write, end));
+    stream.standaloneModule = opts.standaloneModule;
+    stream.hasExports = opts.hasExports;
+
+    var first = true;
+    var entries = [];
+    var basedir = defined(opts.basedir, process.cwd());
+    var prelude = opts.prelude || defaultPrelude;
+    var preludePath = opts.preludePath ||
+        path.relative(basedir, defaultPreludePath).replace(/\\/g, &#x27;/&#x27;);
+
+    var lineno = 1 + newlinesIn(prelude);
+    var sourcemap;
+
+    return stream;
+
+    function write (row, enc, next) {
+        if (first &#x26;&#x26; opts.standalone) {
+            var pre = umd.prelude(opts.standalone).trim();
+            stream.push(new Buffer(pre + &#x27;return &#x27;));
+        }
+        else if (first &#x26;&#x26; stream.hasExports) {
+            var pre = opts.externalRequireName || &#x27;require&#x27;;
+            stream.push(new Buffer(pre + &#x27;=&#x27;));
+        }
+        if (first) stream.push(new Buffer(prelude + &#x27;({&#x27;));
+
+        if (row.sourceFile &#x26;&#x26; !row.nomap) {
+            if (!sourcemap) {
+                sourcemap = combineSourceMap.create();
+                sourcemap.addFile(
+                    { sourceFile: preludePath, source: prelude },
+                    { line: 0 }
+                );
+            }
+            sourcemap.addFile(
+                { sourceFile: row.sourceFile, source: row.source },
+                { line: lineno }
+            );
+        }
+
+        var wrappedSource = [
+            (first ? &#x27;&#x27; : &#x27;,&#x27;),
+            JSON.stringify(row.id),
+            &#x27;:[&#x27;,
+            &#x27;function(require,module,exports){\n&#x27;,
+            combineSourceMap.removeComments(row.source),
+            &#x27;\n},&#x27;,
+            &#x27;{&#x27; + Object.keys(row.deps || {}).sort().map(function (key) {
+                return JSON.stringify(key) + &#x27;:&#x27;
+                    + JSON.stringify(row.deps[key])
+                ;
+            }).join(&#x27;,&#x27;) + &#x27;}&#x27;,
+            &#x27;]&#x27;
+        ].join(&#x27;&#x27;);
+
+        stream.push(new Buffer(wrappedSource));
+        lineno += newlinesIn(wrappedSource);
+
+        first = false;
+        if (row.entry &#x26;&#x26; row.order !== undefined) {
+            entries[row.order] = row.id;
+        }
+        else if (row.entry) entries.push(row.id);
+        next();
+    }
+
+    function end () {
+        if (first) stream.push(new Buffer(prelude + &#x27;({&#x27;));
+        entries = entries.filter(function (x) { return x !== undefined });
+
+        stream.push(new Buffer(&#x27;},{},&#x27; + JSON.stringify(entries) + &#x27;)&#x27;));
+
+        if (opts.standalone &#x26;&#x26; !first) {
+            stream.push(new Buffer(
+                &#x27;(&#x27; + JSON.stringify(stream.standaloneModule) + &#x27;)&#x27;
+                + umd.postlude(opts.standalone)
+            ));
+        }
+
+        if (sourcemap) {
+            var comment = sourcemap.comment();
+            if (opts.sourceMapPrefix) {
+                comment = comment.replace(
+                    /^\/\/#/, function () { return opts.sourceMapPrefix }
+                )
+            }
+            stream.push(new Buffer(&#x27;\n&#x27; + comment + &#x27;\n&#x27;));
+        }
+        if (!sourcemap &#x26;&#x26; !opts.standalone) stream.push(new Buffer(&#x27;;\n&#x27;));
+
+        stream.push(null);
+    }
+}</pre></li>
+    <li>example usage<pre class="apidocCodePre">n/a</pre></li>
+    </ul>
+
+
+
+    <h2>
+        <a href="#apidoc.element.browser-pack.toString" id="apidoc.element.browser-pack.toString">
+        function <span class="apidocSignatureSpan">browser-pack.</span>toString
+        <span class="apidocSignatureSpan">()</span>
+        </a>
+    </h2>
+    <ul>
+    <li>description and source-code<pre class="apidocCodePre">toString = function () {
+    return text;
+}</pre></li>
+    <li>example usage<pre class="apidocCodePre">n/a</pre></li>
+    </ul>
+
+
+</div>
+
+<div class="apidocFooterDiv">
+    [ this document was created with
+    <a href="https://github.com/kaizhu256/node-utility2" target="_blank">utility2</a>
+    ]
+</div>
+</div>
